@@ -1,0 +1,6 @@
+@ReadyErp.Api_HostAddress = http://localhost:5124
+
+GET {{ReadyErp.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

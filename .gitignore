@@ -1,0 +1,24 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Build output (also covered by nested .gitignore files)
+**/bin/
+**/obj/
+**/dist/
+**/node_modules/
+
+# SQLite database files (regenerated + seeded on run)
+*.db
+*.db-shm
+*.db-wal
