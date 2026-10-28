@@ -1,6 +1,6 @@
 # E&G Engineering — MVP (Inventory, Invoicing & Quotation)
 
-A client demo MVP: separate **Angular** frontend and **ASP.NET Core + EF Core (SQLite)** backend.
+A client demo MVP: separate **Nuxt 3 (SPA)** frontend and **ASP.NET Core + EF Core (SQLite)** backend.
 
 ## Prerequisites
 - .NET 10 SDK
@@ -18,10 +18,10 @@ dotnet run --urls http://localhost:5080
 ## Run the frontend
 ```powershell
 cd frontend
-npm start
+npm run dev
 ```
-- Opens on http://localhost:4200
-- API base URL is configured in `frontend/src/app/core/environment.ts`.
+- Opens on http://localhost:3000
+- API base URL is set via `runtimeConfig.public.apiBase` in `frontend/nuxt.config.ts`.
 
 ## Demo flow
 1. Log in with `admin` / `admin`.
