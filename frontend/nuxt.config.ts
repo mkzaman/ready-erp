@@ -11,7 +11,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
-      apiBase: 'http://localhost:5080/api'
+      apiBase: 'https://ready-erp.onrender.com/api'
     }
   },
   app: {
