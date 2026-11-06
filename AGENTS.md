@@ -9,7 +9,8 @@ cd frontend ; npm run dev                               # http://localhost:3000
 ```
 - **Node 20+ is required** (Nuxt 4). Node 16 fails with `node:util has no export parseArgs`. Use `nvm use 22.23.1`.
 - Login: **admin / admin** (seeded). No registration, no email flows.
-- Frontend expects the API at `http://localhost:5080/api` — set via `runtimeConfig.public.apiBase` in `frontend/nuxt.config.ts`. CORS in `backend/Program.cs` only allows `http://localhost:3000`. Change both together if a port moves.
+- Frontend expects the API at `http://localhost:5080/api` — set via `runtimeConfig.public.apiBase` in `frontend/nuxt.config.ts`. CORS in `backend/Program.cs` is currently `AllowAnyOrigin()` (demo convenience); lock it down to the real origin before anything public.
+- **Docker** (`backend/Dockerfile`): the SQLite file and the uploaded images both live under `/data`, driven by `ConnectionStrings__Default` and `Storage__UploadPath`. Mount **one** volume there — `docker run -v readyerp-data:/data`. Prefer a *named* volume over a bind mount: SQLite WAL locking is unreliable on Docker Desktop bind mounts, and a named volume inherits the correct ownership from the image. Persisting only one of the two leaves `Product.ImagePath` rows pointing at missing files.
 
 ## Backend quirks
 - **No EF migrations.** Schema is created via `DbContext.Database.EnsureCreated()` in `Infrastructure/DbSeeder.cs`, which also seeds admin + sample data. To change the schema, delete `backend/readyerp.db` (plus `-shm` / `-wal`, all gitignored) and re-run; do not scaffold migrations unless you intend to switch the whole approach.

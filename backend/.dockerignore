@@ -7,5 +7,10 @@
 *.db
 *.db-shm
 *.db-wal
+# Never bake locally uploaded product images into the image; at runtime these
+# live on the /data volume.
+wwwroot/uploads/
+appsettings.Development.json
 Dockerfile
+.dockerignore
 README*

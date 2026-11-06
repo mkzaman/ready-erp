@@ -1,0 +1,39 @@
+# Netlify build configuration for the E&G Engineering ERP frontend.
+#
+# Set the "Base directory" in the Netlify UI to `frontend` if the repository
+# root is connected; the paths below are then relative to it.
+
+[build]
+  command = "npm run generate"
+  publish = ".output/public"
+
+[build.environment]
+  # Nuxt 4 requires Node 20+. Netlify still defaults to an older major on some
+  # build images, which fails with "node:util has no export parseArgs".
+  NODE_VERSION = "22"
+
+  # The API the SPA talks to.
+  #
+  # IMPORTANT: this app is statically generated, so `runtimeConfig.public` is
+  # baked into the JavaScript bundle at BUILD time. Changing this value needs a
+  # redeploy — setting it at runtime has no effect.
+  NUXT_PUBLIC_API_BASE = "https://ready-erp.onrender.com/api"
+
+# Hashed build assets are immutable and safe to cache forever.
+[[headers]]
+  for = "/_nuxt/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Self-hosted fonts are also content-hashed.
+[[headers]]
+  for = "/_fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The shell must never be cached, or users get stale asset references after a
+# deploy and the app fails to boot.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

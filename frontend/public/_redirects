@@ -1,0 +1,9 @@
+# SPA fallback.
+#
+# This is a client-rendered app (ssr: false), so only index.html physically
+# exists. Without this rule, loading or refreshing a deep link such as
+# /products or /quotations/new returns a Netlify 404 — the Vue router never
+# gets a chance to handle the route.
+#
+# Status 200 (not 301/302) so the URL is preserved for the router.
+/*    /index.html   200

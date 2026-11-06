@@ -236,6 +236,15 @@ public class ProductsController : ControllerBase
     [RequestSizeLimit(10 * 1024 * 1024)]
     public async Task<ActionResult<ProductDto>> UploadImage(int id, IFormFile file)
     {
+        if (!_storage.IsWritable)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message = "Image storage is not available on this server. " +
+                          "Set Storage__UploadPath to a writable directory."
+            });
+        }
+
         var product = await _db.Products.FindAsync(id);
         if (product is null) return NotFound();
 

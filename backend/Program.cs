@@ -68,11 +68,17 @@ app.UseCors(CorsPolicy);
 
 // Serve uploaded product images from the configured storage path. Anonymous
 // by design: <img> tags cannot send an Authorization header.
-app.UseStaticFiles(new StaticFileOptions
+//
+// Guarded: if no writable storage could be resolved the API still runs, it
+// simply cannot serve or accept images.
+if (Directory.Exists(storage.UploadPath))
 {
-    FileProvider = new PhysicalFileProvider(storage.UploadPath),
-    RequestPath = storage.RequestPath
-});
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(storage.UploadPath),
+        RequestPath = storage.RequestPath
+    });
+}
 
 app.UseAuthentication();
 app.UseAuthorization();
