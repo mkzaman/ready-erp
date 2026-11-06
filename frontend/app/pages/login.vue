@@ -21,36 +21,69 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex items-center justify-center min-h-screen bg-[#0f2b46]">
-    <form class="bg-white p-10 rounded-xl w-[340px] flex flex-col shadow-2xl" @submit.prevent="submit">
-      <h1 class="m-0 text-[#0f2b46] text-2xl font-bold">E&G Engineering</h1>
-      <p class="text-slate-500 text-sm mt-1 mb-6">Inventory, Invoicing & Quotation System</p>
+  <div
+    class="flex min-h-screen items-center justify-center bg-on-background p-space-md font-body-md text-body-md"
+  >
+    <div class="w-full max-w-sm">
+      <div class="mb-space-lg flex items-center gap-space-sm">
+        <span
+          class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary-container text-on-primary"
+        >
+          <Icon name="material-symbols:monitor-heart-outline" class="size-6" />
+        </span>
+        <div>
+          <h1 class="font-headline-md text-headline-md text-surface-bright">E&amp;G Engineering</h1>
+          <p class="font-label-md text-label-md text-outline-variant">
+            Inventory, Invoicing &amp; Quotations
+          </p>
+        </div>
+      </div>
 
-      <label class="text-xs font-semibold text-slate-700 mt-3">Username</label>
-      <input
-        v-model="username"
-        autocomplete="username"
-        class="p-2.5 border border-slate-300 rounded-md mt-1"
-      />
-
-      <label class="text-xs font-semibold text-slate-700 mt-3">Password</label>
-      <input
-        v-model="password"
-        type="password"
-        autocomplete="current-password"
-        class="p-2.5 border border-slate-300 rounded-md mt-1"
-      />
-
-      <p v-if="error" class="text-red-600 text-sm mt-3">{{ error }}</p>
-
-      <button
-        type="submit"
-        :disabled="loading"
-        class="mt-6 p-2.5 bg-[#c2410c] text-white rounded-md font-semibold disabled:opacity-60"
+      <form
+        class="flex flex-col gap-space-md rounded-xl bg-surface-container-lowest p-space-xl elevation-3"
+        @submit.prevent="submit"
       >
-        {{ loading ? 'Signing in...' : 'Sign In' }}
-      </button>
-      <p class="text-slate-400 text-xs text-center mt-4">Demo login: admin / admin</p>
-    </form>
+        <div>
+          <h2 class="font-headline-sm text-headline-sm text-on-surface">Sign in</h2>
+          <p class="mt-0.5 font-body-sm text-body-sm text-on-surface-variant">
+            Use your operations account to continue.
+          </p>
+        </div>
+
+        <FormField
+          v-model="username"
+          label="Username"
+          icon="person"
+          autocomplete="username"
+          required
+        />
+
+        <FormField
+          v-model="password"
+          label="Password"
+          type="password"
+          icon="lock"
+          autocomplete="current-password"
+          required
+        />
+
+        <p
+          v-if="error"
+          class="flex items-center gap-1.5 rounded-xl bg-error-container px-space-sm py-2 font-body-sm text-body-sm text-on-error-container"
+          role="alert"
+        >
+          <Icon name="material-symbols:error-outline" class="size-4 shrink-0" />
+          {{ error }}
+        </p>
+
+        <AppButton type="submit" :loading="loading" class="w-full">
+          {{ loading ? 'Signing in...' : 'Sign in' }}
+        </AppButton>
+
+        <p class="text-center font-label-sm text-label-sm text-on-surface-variant">
+          Demo login: admin / admin
+        </p>
+      </form>
+    </div>
   </div>
 </template>

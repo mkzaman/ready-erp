@@ -1,9 +1,15 @@
 import type {
+  Category,
   Customer,
   DashboardData,
   DocHeader,
+  Location,
+  Paged,
   Product,
-  QuotationListItem
+  ProductQuery,
+  ProductUpsert,
+  QuotationListItem,
+  Warehouse
 } from '~/types/models'
 
 export function useApi() {
@@ -26,21 +32,53 @@ export function useApi() {
     })
   }
 
+  /** Drops null/undefined/empty values so they are not sent as "null". */
+  function qs(params: Record<string, unknown>) {
+    const search = new URLSearchParams()
+    for (const [key, value] of Object.entries(params)) {
+      if (value === null || value === undefined || value === '') continue
+      search.set(key, String(value))
+    }
+    const str = search.toString()
+    return str ? `?${str}` : ''
+  }
+
   return {
     // Products
-    getProducts: (search = '') =>
-      request<Product[]>(`/products?search=${encodeURIComponent(search)}`),
-    createProduct: (p: Partial<Product>) =>
+    getProducts: (query: ProductQuery = {}) =>
+      request<Paged<Product>>(`/products${qs(query as Record<string, unknown>)}`),
+    getProduct: (id: number) => request<Product>(`/products/${id}`),
+    createProduct: (p: ProductUpsert) =>
       request<Product>('/products', { method: 'POST', body: p }),
-    updateProduct: (id: number, p: Partial<Product>) =>
+    updateProduct: (id: number, p: ProductUpsert) =>
       request<Product>(`/products/${id}`, { method: 'PUT', body: p }),
     deactivateProduct: (id: number) =>
       request(`/products/${id}/deactivate`, { method: 'POST' }),
+    activateProduct: (id: number) =>
+      request(`/products/${id}/activate`, { method: 'POST' }),
     adjustStock: (id: number, quantityChange: number, reason: string) =>
       request<Product>(`/products/${id}/adjust-stock`, {
         method: 'POST',
         body: { quantityChange, reason }
       }),
+    uploadProductImage: (id: number, file: File) => {
+      // Let the browser set the multipart boundary; do not set Content-Type.
+      const form = new FormData()
+      form.append('file', file)
+      return request<Product>(`/products/${id}/image`, { method: 'POST', body: form })
+    },
+    deleteProductImage: (id: number) =>
+      request(`/products/${id}/image`, { method: 'DELETE' }),
+
+    // Reference data
+    getCategories: () => request<Category[]>('/categories'),
+    createCategory: (name: string, description: string | null = null) =>
+      request<Category>('/categories', { method: 'POST', body: { name, description } }),
+    getWarehouses: () => request<Warehouse[]>('/warehouses'),
+    getWarehouseLocations: (warehouseId: number) =>
+      request<Location[]>(`/warehouses/${warehouseId}/locations`),
+    getLocations: (warehouseId?: number) =>
+      request<Location[]>(`/locations${qs({ warehouseId })}`),
 
     // Customers
     getCustomers: (search = '') =>

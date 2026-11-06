@@ -1,115 +1,241 @@
 <script setup lang="ts">
+import type { TableColumn, TableTab } from '~/types/table'
+
 const api = useApi()
+const toast = useToast()
+
 const dispatches = ref<any[]>([])
+const loading = ref(true)
+const search = ref('')
+const status = ref('')
+const page = ref(1)
+const pageSize = ref(25)
+const busyId = ref<number | null>(null)
+
 const current = ref<any | null>(null)
-const message = ref('')
+const confirming = ref<any | null>(null)
+
+const columns: TableColumn[] = [
+  { key: 'number', label: 'Number', width: 'w-60' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'date', label: 'Date', hideBelow: 'md' },
+  { key: 'lineCount', label: 'Lines', align: 'right', numeric: true, hideBelow: 'lg' },
+  { key: 'status', label: 'Status' }
+]
+
+const tabs = computed<TableTab[]>(() => [
+  { value: '', label: 'All', count: dispatches.value.length },
+  { value: 'pending', label: 'Pending', count: dispatches.value.filter((d) => !d.isIssued).length },
+  { value: 'issued', label: 'Issued', count: dispatches.value.filter((d) => d.isIssued).length }
+])
+
+const filtered = computed(() => {
+  const term = search.value.trim().toLowerCase()
+  return dispatches.value.filter((d) => {
+    if (status.value === 'pending' && d.isIssued) return false
+    if (status.value === 'issued' && !d.isIssued) return false
+    if (!term) return true
+    return (
+      String(d.number).toLowerCase().includes(term) ||
+      String(d.customer ?? '').toLowerCase().includes(term)
+    )
+  })
+})
+
+const paged = computed(() =>
+  filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
+)
+
+watch([search, status], () => (page.value = 1))
 
 async function load() {
-  dispatches.value = await api.getDispatches()
+  loading.value = true
+  try {
+    dispatches.value = await api.getDispatches()
+  } catch (error) {
+    toast.error(error)
+    dispatches.value = []
+  } finally {
+    loading.value = false
+  }
 }
+
+onMounted(load)
+
 async function view(id: number) {
-  current.value = await api.getDispatch(id)
+  try {
+    current.value = await api.getDispatch(id)
+  } catch (error) {
+    toast.error(error)
+  }
 }
-async function issue(id: number) {
-  const res = await api.issueDispatch(id)
-  message.value = res.warnings?.length
-    ? `Issued with stock warnings: ${res.warnings.join('; ')}`
-    : 'Dispatch issued. Stock reduced.'
-  await load()
+
+async function issue() {
+  const dispatch = confirming.value
+  if (!dispatch) return
+
+  busyId.value = dispatch.id
+  try {
+    const result = await api.issueDispatch(dispatch.id)
+
+    // Short stock is a warning, not a block — surface it rather than hide it.
+    if (result.warnings?.length) {
+      toast.warning(`${dispatch.number} issued with stock shortfalls: ${result.warnings.join('; ')}`, 10000)
+    } else {
+      toast.success(`${dispatch.number} issued — stock reduced`)
+    }
+
+    confirming.value = null
+    await load()
+  } catch (error) {
+    toast.error(error)
+  } finally {
+    busyId.value = null
+  }
 }
+
 function print() {
   window.print()
 }
 
-onMounted(load)
+const dispatch = computed(() => current.value?.dispatch ?? null)
 </script>
 
 <template>
-  <h2 class="text-[#0f2b46] text-xl font-bold mb-4 print:hidden">Dispatch Notes</h2>
+  <PageHeader
+    title="Dispatch notes"
+    description="Stock is deducted only when a dispatch is issued."
+  />
 
-  <table class="w-full bg-white rounded-lg overflow-hidden print:hidden">
-    <thead>
-      <tr class="bg-slate-50 text-left text-sm">
-        <th class="p-2.5">Number</th>
-        <th class="p-2.5">Customer</th>
-        <th class="p-2.5">Lines</th>
-        <th class="p-2.5">Status</th>
-        <th class="p-2.5"></th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr v-for="d in dispatches" :key="d.id" class="border-t border-slate-200 text-sm">
-        <td class="p-2.5">{{ d.number }}</td>
-        <td class="p-2.5">{{ d.customer }}</td>
-        <td class="p-2.5">{{ d.lineCount }}</td>
-        <td class="p-2.5">{{ d.isIssued ? 'Issued' : 'Pending' }}</td>
-        <td class="p-2.5">
-          <button class="text-blue-600 mr-4" @click="view(d.id)">View / Print</button>
-          <button v-if="!d.isIssued" class="text-[#c2410c]" @click="issue(d.id)">Issue (reduce stock)</button>
-        </td>
-      </tr>
-    </tbody>
-  </table>
+  <TableToolbar
+    v-model:search="search"
+    v-model:tab="status"
+    :tabs="tabs"
+    search-placeholder="Search number or customer..."
+  />
 
-  <p v-if="message" class="mt-4 text-green-800 print:hidden">{{ message }}</p>
-
-  <div
-    v-if="current"
-    class="fixed inset-0 bg-black/40 flex items-start justify-center overflow-auto p-8 print:static print:bg-transparent print:p-0 print:block"
-    @click.self="current = null"
+  <DataTable
+    :columns="columns"
+    :rows="paged"
+    :loading="loading"
+    empty-title="No dispatch notes yet"
+    empty-description="Convert an accepted quotation to generate one."
+    empty-icon="local-shipping"
   >
-    <div class="bg-white rounded-lg w-[800px] print:w-full">
-      <div class="flex justify-end gap-3 p-4 print:hidden">
-        <button class="bg-[#c2410c] text-white px-3.5 py-2 rounded-md" @click="print">Print</button>
-        <button class="bg-slate-200 text-slate-700 px-3.5 py-2 rounded-md" @click="current = null">Close</button>
+    <template #cell-number="{ row }">
+      <span class="font-label-lg text-label-lg text-on-surface">{{ row.number }}</span>
+    </template>
+
+    <template #cell-customer="{ value }">{{ value || '—' }}</template>
+
+    <template #cell-date="{ value }">{{ formatDate(value) }}</template>
+
+    <template #cell-status="{ row }">
+      <StatusBadge
+        :status="row.isIssued ? 'Issued' : 'Pending'"
+        :tone="row.isIssued ? 'success' : 'warning'"
+      />
+    </template>
+
+    <template #actions="{ row }">
+      <div class="flex items-center justify-end gap-space-xs">
+        <AppButton variant="ghost" size="sm" icon="print" @click="view(row.id)">View</AppButton>
+        <AppButton
+          v-if="!row.isIssued"
+          variant="secondary"
+          size="sm"
+          icon="inventory"
+          :loading="busyId === row.id"
+          @click="confirming = row"
+        >
+          Issue
+        </AppButton>
       </div>
+    </template>
+  </DataTable>
 
-      <div class="p-8">
-        <div class="flex justify-between border-b-2 border-[#0f2b46] pb-4">
-          <div><h1 class="m-0 text-[#0f2b46] text-2xl font-bold">E&G Engineering Ltd.</h1></div>
-          <div class="text-right">
-            <h2 class="m-0 text-[#c2410c] text-xl font-bold">DISPATCH NOTE</h2>
-            <p class="text-sm">{{ current.dispatch.number }}</p>
-            <p class="text-sm">{{ formatDate(current.dispatch.date) }}</p>
-          </div>
-        </div>
+  <TablePagination v-model:page="page" v-model:page-size="pageSize" :total="filtered.length" />
 
-        <div class="flex justify-between my-6 text-sm">
-          <div>
-            <strong>{{ current.dispatch.customer?.name || current.dispatch.customerNameOverride }}</strong>
-            <p>{{ current.dispatch.customer?.billingAddress }}</p>
-          </div>
-          <div>
-            <p><b>Work Ref:</b> {{ current.dispatch.workRef }}</p>
-            <p><b>Project Site:</b> {{ current.dispatch.projectSite }}</p>
-            <p><b>PO No:</b> {{ current.dispatch.poNo }}</p>
-          </div>
-        </div>
+  <!-- Issue confirmation -->
+  <AppModal :open="!!confirming" size="sm" title="Issue dispatch" @close="confirming = null">
+    <p class="font-body-md text-body-md text-on-surface">
+      Issuing <strong>{{ confirming?.number }}</strong> deducts its quantities from stock.
+    </p>
+    <p class="mt-space-sm font-body-sm text-body-sm text-on-surface-variant">
+      Service lines are skipped. If an item is short, the dispatch is still issued and a warning is
+      reported — stock may go negative. This cannot be undone.
+    </p>
 
-        <table class="w-full border border-slate-200 text-sm">
+    <template #footer>
+      <AppButton variant="secondary" @click="confirming = null">Cancel</AppButton>
+      <AppButton :loading="busyId === confirming?.id" @click="issue">Issue</AppButton>
+    </template>
+  </AppModal>
+
+  <!-- Printable note -->
+  <AppModal :open="!!current" size="xl" printable @close="current = null">
+    <template #header>
+      <div>
+        <h2 class="font-headline-sm text-headline-sm text-on-surface">
+          Dispatch {{ dispatch?.number }}
+        </h2>
+        <p class="font-body-sm text-body-sm text-on-surface-variant">
+          {{ dispatch?.customer?.name || dispatch?.customerNameOverride }}
+        </p>
+      </div>
+      <AppButton icon="print" class="ml-auto mr-space-sm" @click="print">Print</AppButton>
+    </template>
+
+    <PrintDocument
+      v-if="dispatch"
+      kind="Dispatch Note"
+      :number="dispatch.number"
+      :date="dispatch.date"
+      :customer-name="dispatch.customer?.name || dispatch.customerNameOverride || 'Customer'"
+      :billing-address="dispatch.customer?.billingAddress"
+      :contact-person="dispatch.customer?.contactPerson"
+      :phone="dispatch.customer?.phone"
+      :work-ref="dispatch.workRef"
+      :project-site="dispatch.projectSite"
+      :po-no="dispatch.poNo"
+      :po-date="dispatch.poDate"
+      :job-ref="dispatch.jobRef"
+      :watermark="dispatch.isIssued ? null : 'PENDING'"
+    >
+      <template #items>
+        <table class="w-full border-collapse text-left">
           <thead>
-            <tr class="bg-[#0f2b46] text-white text-left">
-              <th class="p-2">SL</th>
-              <th class="p-2">Description</th>
-              <th class="p-2">UoM</th>
-              <th class="p-2">Qty</th>
+            <tr class="bg-[#0f172a] font-label-md text-label-md uppercase tracking-wider text-white">
+              <th class="w-10 px-2 py-2 font-semibold">#</th>
+              <th class="px-2 py-2 font-semibold">Description</th>
+              <th class="w-24 px-2 py-2 font-semibold">UoM</th>
+              <th class="w-28 px-2 py-2 text-right font-semibold">Qty</th>
+              <th class="w-40 px-2 py-2 font-semibold">Received</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="(it, idx) in current.dispatch.items" :key="it.id" class="border-t border-slate-200">
-              <td class="p-2">{{ idx + 1 }}</td>
-              <td class="p-2">{{ it.description }}</td>
-              <td class="p-2">{{ it.unit }}</td>
-              <td class="p-2">{{ it.quantity }}</td>
+          <tbody class="font-body-sm text-body-sm">
+            <tr
+              v-for="(item, index) in dispatch.items"
+              :key="item.id"
+              class="border-b border-[#e2e8f0]"
+            >
+              <td class="px-2 py-2 tabular text-[#64748b]">{{ index + 1 }}</td>
+              <td class="px-2 py-2">{{ item.description }}</td>
+              <td class="px-2 py-2">{{ item.unit }}</td>
+              <td class="px-2 py-2 text-right tabular">{{ item.quantity }}</td>
+              <!-- Left blank intentionally: signed off on paper at delivery. -->
+              <td class="px-2 py-2" />
             </tr>
           </tbody>
         </table>
+      </template>
 
-        <div class="flex justify-between mt-12">
-          <span class="border-t border-slate-700 pt-2 w-[180px] text-center text-sm">Prepared By</span>
-          <span class="border-t border-slate-700 pt-2 w-[180px] text-center text-sm">Received By</span>
-        </div>
-      </div>
-    </div>
-  </div>
+      <template #totals>
+        <p class="mt-space-md font-body-sm text-body-sm text-[#64748b]">
+          Goods remain the property of E&amp;G Engineering Ltd. until paid in full. Please check
+          quantities on receipt; discrepancies must be reported within 48 hours.
+        </p>
+      </template>
+    </PrintDocument>
+  </AppModal>
 </template>

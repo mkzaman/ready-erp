@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using ReadyErp.Api.Infrastructure;
 using ReadyErp.Api.Services;
@@ -19,6 +20,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<NumberingService>();
 builder.Services.AddScoped<TokenService>();
+
+// Upload storage. Path is configurable so a container can point it at a
+// mounted volume; see StorageOptions.
+var storage = StorageOptions.Create(builder.Configuration, builder.Environment.ContentRootPath);
+builder.Services.AddSingleton(storage);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -59,6 +65,15 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
+
+// Serve uploaded product images from the configured storage path. Anonymous
+// by design: <img> tags cannot send an Authorization header.
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(storage.UploadPath),
+    RequestPath = storage.RequestPath
+});
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

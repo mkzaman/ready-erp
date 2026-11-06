@@ -1,118 +1,228 @@
 <script setup lang="ts">
+import type { TableColumn, TableTab } from '~/types/table'
+
 const api = useApi()
+const toast = useToast()
+
 const invoices = ref<any[]>([])
+const loading = ref(true)
+const search = ref('')
+const status = ref('')
+const page = ref(1)
+const pageSize = ref(25)
+
 const current = ref<any | null>(null)
+const loadingDoc = ref(false)
+
+const columns: TableColumn[] = [
+  { key: 'number', label: 'Number', width: 'w-60' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'date', label: 'Date', hideBelow: 'md' },
+  { key: 'status', label: 'Status' },
+  { key: 'grandTotal', label: 'Grand total', align: 'right', numeric: true }
+]
+
+const tabs = computed<TableTab[]>(() => [
+  { value: '', label: 'All', count: invoices.value.length },
+  { value: 'active', label: 'Active', count: invoices.value.filter((i) => !i.isVoided).length },
+  { value: 'voided', label: 'Voided', count: invoices.value.filter((i) => i.isVoided).length }
+])
+
+const filtered = computed(() => {
+  const term = search.value.trim().toLowerCase()
+  return invoices.value.filter((i) => {
+    if (status.value === 'active' && i.isVoided) return false
+    if (status.value === 'voided' && !i.isVoided) return false
+    if (!term) return true
+    return (
+      String(i.number).toLowerCase().includes(term) ||
+      String(i.customer ?? '').toLowerCase().includes(term)
+    )
+  })
+})
+
+const paged = computed(() =>
+  filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
+)
+
+watch([search, status], () => (page.value = 1))
+
+async function load() {
+  loading.value = true
+  try {
+    invoices.value = await api.getInvoices()
+  } catch (error) {
+    toast.error(error)
+    invoices.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
 
 async function view(id: number) {
-  current.value = await api.getInvoice(id)
+  loadingDoc.value = true
+  try {
+    current.value = await api.getInvoice(id)
+  } catch (error) {
+    toast.error(error)
+  } finally {
+    loadingDoc.value = false
+  }
 }
+
 function print() {
   window.print()
 }
 
-onMounted(async () => {
-  invoices.value = await api.getInvoices()
-})
+const invoice = computed(() => current.value?.invoice ?? null)
+const totals = computed(() => current.value?.totals ?? null)
 </script>
 
 <template>
-  <h2 class="text-[#0f2b46] text-xl font-bold mb-4 print:hidden">Invoices</h2>
+  <PageHeader
+    title="Invoices"
+    description="Generated when a quotation is converted. Print or void from here."
+  />
 
-  <table class="w-full bg-white rounded-lg overflow-hidden print:hidden">
-    <thead>
-      <tr class="bg-slate-50 text-left text-sm">
-        <th class="p-2.5">Number</th>
-        <th class="p-2.5">Customer</th>
-        <th class="p-2.5">Grand Total</th>
-        <th class="p-2.5">Status</th>
-        <th class="p-2.5"></th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr v-for="i in invoices" :key="i.id" class="border-t border-slate-200 text-sm">
-        <td class="p-2.5">{{ i.number }}</td>
-        <td class="p-2.5">{{ i.customer }}</td>
-        <td class="p-2.5">{{ formatNumber(i.totals.grandTotal) }}</td>
-        <td class="p-2.5">{{ i.isVoided ? 'Voided' : 'Active' }}</td>
-        <td class="p-2.5"><button class="text-blue-600" @click="view(i.id)">View / Print</button></td>
-      </tr>
-    </tbody>
-  </table>
+  <TableToolbar
+    v-model:search="search"
+    v-model:tab="status"
+    :tabs="tabs"
+    search-placeholder="Search number or customer..."
+  />
 
-  <div
-    v-if="current"
-    class="fixed inset-0 bg-black/40 flex items-start justify-center overflow-auto p-8 print:static print:bg-transparent print:p-0 print:block"
-    @click.self="current = null"
+  <DataTable
+    :columns="columns"
+    :rows="paged"
+    :loading="loading"
+    empty-title="No invoices yet"
+    empty-description="Convert an accepted quotation to generate one."
+    empty-icon="receipt-long"
   >
-    <div class="bg-white rounded-lg w-[800px] print:w-full">
-      <div class="flex justify-end gap-3 p-4 print:hidden">
-        <button class="bg-[#c2410c] text-white px-3.5 py-2 rounded-md" @click="print">Print</button>
-        <button class="bg-slate-200 text-slate-700 px-3.5 py-2 rounded-md" @click="current = null">Close</button>
+    <template #cell-number="{ row }">
+      <span class="font-label-lg text-label-lg text-on-surface">{{ row.number }}</span>
+    </template>
+
+    <template #cell-customer="{ value }">{{ value || '—' }}</template>
+
+    <template #cell-date="{ value }">{{ formatDate(value) }}</template>
+
+    <template #cell-status="{ row }">
+      <StatusBadge :status="row.isVoided ? 'Voided' : 'Active'" :tone="row.isVoided ? 'danger' : 'success'" />
+    </template>
+
+    <template #cell-grandTotal="{ row }">
+      <span class="font-label-lg text-label-lg" :class="row.isVoided ? 'line-through opacity-60' : ''">
+        {{ formatNumber(row.totals.grandTotal) }}
+      </span>
+    </template>
+
+    <template #actions="{ row }">
+      <AppButton variant="secondary" size="sm" icon="print" @click="view(row.id)">
+        View
+      </AppButton>
+    </template>
+  </DataTable>
+
+  <TablePagination v-model:page="page" v-model:page-size="pageSize" :total="filtered.length" />
+
+  <AppModal :open="!!current" size="xl" printable @close="current = null">
+    <template #header>
+      <div>
+        <h2 class="font-headline-sm text-headline-sm text-on-surface">
+          Invoice {{ invoice?.number }}
+        </h2>
+        <p class="font-body-sm text-body-sm text-on-surface-variant">
+          {{ invoice?.customer?.name || invoice?.customerNameOverride }}
+        </p>
       </div>
+      <AppButton icon="print" class="ml-auto mr-space-sm" @click="print">Print</AppButton>
+    </template>
 
-      <div class="p-8">
-        <div class="flex justify-between border-b-2 border-[#0f2b46] pb-4">
-          <div>
-            <h1 class="m-0 text-[#0f2b46] text-2xl font-bold">E&G Engineering Ltd.</h1>
-            <p class="text-sm text-slate-500">Inventory-Based Invoicing System</p>
-          </div>
-          <div class="text-right">
-            <h2 class="m-0 text-[#c2410c] text-xl font-bold">INVOICE</h2>
-            <p class="text-sm">{{ current.invoice.number }}</p>
-            <p class="text-sm">{{ formatDate(current.invoice.date) }}</p>
-          </div>
-        </div>
-
-        <div class="flex justify-between my-6 text-sm">
-          <div>
-            <strong>{{ current.invoice.customer?.name || current.invoice.customerNameOverride }}</strong>
-            <p>{{ current.invoice.customer?.billingAddress }}</p>
-            <p>{{ current.invoice.customer?.contactPerson }} {{ current.invoice.customer?.phone }}</p>
-          </div>
-          <div>
-            <p><b>Work Ref:</b> {{ current.invoice.workRef }}</p>
-            <p><b>Project Site:</b> {{ current.invoice.projectSite }}</p>
-            <p><b>PO No:</b> {{ current.invoice.poNo }}</p>
-            <p><b>Job Ref:</b> {{ current.invoice.jobRef }}</p>
-          </div>
-        </div>
-
-        <table class="w-full border border-slate-200 text-sm">
+    <PrintDocument
+      v-if="invoice"
+      kind="Invoice"
+      :number="invoice.number"
+      :date="invoice.date"
+      :customer-name="invoice.customer?.name || invoice.customerNameOverride || 'Customer'"
+      :billing-address="invoice.customer?.billingAddress"
+      :contact-person="invoice.customer?.contactPerson"
+      :phone="invoice.customer?.phone"
+      :vat-bin="invoice.customer?.vatBin"
+      :work-ref="invoice.workRef"
+      :project-site="invoice.projectSite"
+      :po-no="invoice.poNo"
+      :po-date="invoice.poDate"
+      :job-ref="invoice.jobRef"
+      :watermark="invoice.isVoided ? 'VOIDED' : null"
+    >
+      <template #items>
+        <table class="w-full border-collapse text-left">
           <thead>
-            <tr class="bg-[#0f2b46] text-white text-left">
-              <th class="p-2">SL</th>
-              <th class="p-2">Description</th>
-              <th class="p-2">UoM</th>
-              <th class="p-2">Qty</th>
-              <th class="p-2">Unit Price</th>
-              <th class="p-2">Total</th>
+            <tr class="bg-[#0f172a] font-label-md text-label-md uppercase tracking-wider text-white">
+              <th class="w-10 px-2 py-2 font-semibold">#</th>
+              <th class="px-2 py-2 font-semibold">Description</th>
+              <th class="w-20 px-2 py-2 font-semibold">UoM</th>
+              <th class="w-20 px-2 py-2 text-right font-semibold">Qty</th>
+              <th class="w-32 px-2 py-2 text-right font-semibold">Unit price</th>
+              <th class="w-32 px-2 py-2 text-right font-semibold">Amount</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="(it, idx) in current.invoice.items" :key="it.id" class="border-t border-slate-200">
-              <td class="p-2">{{ idx + 1 }}</td>
-              <td class="p-2">{{ it.description }}</td>
-              <td class="p-2">{{ it.unit }}</td>
-              <td class="p-2">{{ it.quantity }}</td>
-              <td class="p-2">{{ formatNumber(it.unitPrice) }}</td>
-              <td class="p-2">{{ formatNumber(it.quantity * it.unitPrice) }}</td>
+          <tbody class="font-body-sm text-body-sm">
+            <tr
+              v-for="(item, index) in invoice.items"
+              :key="item.id"
+              class="border-b border-[#e2e8f0]"
+            >
+              <td class="px-2 py-2 tabular text-[#64748b]">{{ index + 1 }}</td>
+              <td class="px-2 py-2">
+                {{ item.description }}
+                <span v-if="item.remarks" class="block text-[#64748b]">{{ item.remarks }}</span>
+              </td>
+              <td class="px-2 py-2">{{ item.unit }}</td>
+              <td class="px-2 py-2 text-right tabular">{{ item.quantity }}</td>
+              <td class="px-2 py-2 text-right tabular">{{ formatNumber(item.unitPrice) }}</td>
+              <td class="px-2 py-2 text-right tabular">
+                {{ formatNumber(lineNet(item)) }}
+              </td>
             </tr>
           </tbody>
         </table>
+      </template>
 
-        <div class="mt-4 ml-auto w-[300px] text-sm">
-          <p class="flex justify-between my-1"><span>Sub-Total</span><span>{{ formatNumber(current.totals.subTotal) }}</span></p>
-          <p v-if="current.totals.charges" class="flex justify-between my-1"><span>Charges</span><span>{{ formatNumber(current.totals.charges) }}</span></p>
-          <p v-if="current.invoice.vatPercent" class="flex justify-between my-1"><span>Add VAT ({{ current.invoice.vatPercent }}%)</span><span>{{ formatNumber(current.totals.vat) }}</span></p>
-          <p class="flex justify-between border-t-2 border-[#0f2b46] pt-2 font-bold"><span>Grand Total</span><span>{{ formatNumber(current.totals.grandTotal) }}</span></p>
-          <p class="italic text-xs text-slate-600 mt-1">In Word: {{ current.totals.grandTotalInWords }}</p>
+      <template #totals>
+        <div class="mt-space-md flex justify-end break-inside-avoid">
+          <dl class="w-80 font-body-sm text-body-sm">
+            <div class="flex justify-between py-1">
+              <dt class="text-[#64748b]">Sub-total</dt>
+              <dd class="tabular">{{ formatNumber(totals.subTotal) }}</dd>
+            </div>
+            <div v-if="totals.discount" class="flex justify-between py-1">
+              <dt class="text-[#64748b]">Discount</dt>
+              <dd class="tabular">-{{ formatNumber(totals.discount) }}</dd>
+            </div>
+            <div v-if="totals.charges" class="flex justify-between py-1">
+              <dt class="text-[#64748b]">Charges</dt>
+              <dd class="tabular">{{ formatNumber(totals.charges) }}</dd>
+            </div>
+            <div v-if="invoice.vatPercent" class="flex justify-between py-1">
+              <dt class="text-[#64748b]">VAT ({{ invoice.vatPercent }}%)</dt>
+              <dd class="tabular">{{ formatNumber(totals.vat) }}</dd>
+            </div>
+            <div
+              class="mt-1 flex justify-between border-t-2 border-[#2563eb] pt-2 font-headline-sm text-headline-sm"
+            >
+              <dt>Grand total</dt>
+              <dd class="tabular">{{ formatNumber(totals.grandTotal) }}</dd>
+            </div>
+            <p class="mt-1 text-right font-body-sm text-body-sm italic text-[#64748b]">
+              {{ totals.grandTotalInWords }}
+            </p>
+          </dl>
         </div>
-
-        <div class="flex justify-between mt-12">
-          <span class="border-t border-slate-700 pt-2 w-[180px] text-center text-sm">Prepared By</span>
-          <span class="border-t border-slate-700 pt-2 w-[180px] text-center text-sm">Received By</span>
-        </div>
-      </div>
-    </div>
-  </div>
+      </template>
+    </PrintDocument>
+  </AppModal>
 </template>

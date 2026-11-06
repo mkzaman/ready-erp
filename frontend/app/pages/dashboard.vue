@@ -1,59 +1,205 @@
 <script setup lang="ts">
-import type { DashboardData } from '~/types/models'
+import type { DashboardData, StockState } from '~/types/models'
+import type { TableColumn } from '~/types/table'
 
 const api = useApi()
-const data = ref<DashboardData | null>(null)
+const toast = useToast()
 
-const cards = computed(() => {
-  if (!data.value) return []
-  return [
-    { label: 'Products', value: data.value.productCount },
-    { label: 'Customers', value: data.value.customerCount },
-    { label: 'Quotations', value: data.value.quotationCount },
-    { label: 'Invoices', value: data.value.invoiceCount },
-    { label: 'Dispatches', value: data.value.dispatchCount }
-  ]
+const data = ref<DashboardData | null>(null)
+const loading = ref(true)
+
+const columns: TableColumn[] = [
+  { key: 'name', label: 'Product', width: 'w-[26rem]' },
+  { key: 'categoryName', label: 'Category', hideBelow: 'lg' },
+  { key: 'stockQuantity', label: 'Stock on hand', width: 'w-48' },
+  { key: 'stockState', label: 'Status' }
+]
+
+function compactMoney(value: number) {
+  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+const STATUS_LABEL: Record<StockState, string> = {
+  InStock: 'In stock',
+  LowStock: 'Low stock',
+  OutOfStock: 'Out of stock',
+  NotTracked: 'Service'
+}
+
+/** Week-on-week direction for the dispatch tile. */
+const dispatchTrend = computed(() => {
+  const series = data.value?.dispatchTrend ?? []
+  if (series.length < 2) return { trend: 'flat' as const, delta: undefined }
+
+  const today = series[series.length - 1] ?? 0
+  const yesterday = series[series.length - 2] ?? 0
+  const change = today - yesterday
+
+  return {
+    trend: change > 0 ? ('up' as const) : change < 0 ? ('down' as const) : ('flat' as const),
+    delta: change === 0 ? 'No change' : `${change > 0 ? '+' : ''}${change} vs yesterday`
+  }
 })
 
+const hasDispatchActivity = computed(() => (data.value?.dispatchTrend ?? []).some((n) => n > 0))
+
 onMounted(async () => {
-  data.value = await api.getDashboard()
+  try {
+    data.value = await api.getDashboard()
+  } catch (error) {
+    toast.error(error)
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
 <template>
-  <h2 class="text-[#0f2b46] text-xl font-bold mb-4">Dashboard</h2>
+  <PageHeader
+    title="Operations overview"
+    description="Stock health, documents in flight and items needing attention."
+  >
+    <template #actions>
+      <AppButton variant="secondary" icon="inventory-2" to="/products">View inventory</AppButton>
+      <AppButton icon="add" to="/quotations/new">New quotation</AppButton>
+    </template>
+  </PageHeader>
 
-  <div v-if="data" class="flex gap-4 flex-wrap mb-8">
-    <div
-      v-for="c in cards"
-      :key="c.label"
-      class="bg-white rounded-xl p-6 min-w-[130px] flex flex-col shadow-sm text-slate-500 text-sm"
-    >
-      <span class="text-3xl font-bold text-[#0f2b46]">{{ c.value }}</span>
-      {{ c.label }}
-    </div>
+  <!-- Stock health -->
+  <div class="mb-space-xl grid grid-cols-1 gap-gutter sm:grid-cols-2 xl:grid-cols-4">
+    <KpiCard
+      label="Stock value"
+      :value="data ? compactMoney(data.totalStockValue) : '0'"
+      :loading="loading"
+      icon="payments"
+      caption="Valued at cost (BDT)"
+    />
+    <KpiCard
+      label="Low stock"
+      :value="data?.lowStockCount ?? 0"
+      :loading="loading"
+      icon="warning"
+      :tone="data && data.lowStockCount > 0 ? 'warning' : 'default'"
+      caption="At or below reorder point"
+    />
+    <KpiCard
+      label="Out of stock"
+      :value="data?.outOfStockCount ?? 0"
+      :loading="loading"
+      icon="production-quantity-limits"
+      :tone="data && data.outOfStockCount > 0 ? 'danger' : 'default'"
+      caption="Needs immediate restock"
+    />
+    <KpiCard
+      label="Dispatched today"
+      :value="data?.unitsDispatchedToday ?? 0"
+      :loading="loading"
+      icon="local-shipping"
+      :series="hasDispatchActivity ? data?.dispatchTrend : undefined"
+      :delta="dispatchTrend.delta"
+      :trend="dispatchTrend.trend"
+      caption="Units issued from stock"
+    />
   </div>
 
-  <template v-if="data">
-    <h3 class="text-[#0f2b46] font-semibold mb-2">Low Stock</h3>
-    <p v-if="data.lowStock.length === 0" class="text-slate-400">No low-stock items.</p>
-    <table v-else class="w-full bg-white rounded-lg overflow-hidden">
-      <thead>
-        <tr class="bg-slate-50 text-left text-sm">
-          <th class="p-2.5">Part No</th>
-          <th class="p-2.5">Name</th>
-          <th class="p-2.5">Stock</th>
-          <th class="p-2.5">Threshold</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="item in data.lowStock" :key="item.partNumber" class="border-t border-slate-200 text-sm">
-          <td class="p-2.5">{{ item.partNumber }}</td>
-          <td class="p-2.5">{{ item.name }}</td>
-          <td class="p-2.5 text-red-600 font-semibold">{{ item.stockQuantity }}</td>
-          <td class="p-2.5">{{ item.lowStockThreshold }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </template>
+  <!-- Document counts -->
+  <div class="mb-space-xl grid grid-cols-2 gap-gutter lg:grid-cols-4">
+    <KpiCard
+      label="Products"
+      :value="data?.productCount ?? 0"
+      :loading="loading"
+      icon="inventory-2"
+    />
+    <KpiCard
+      label="Customers"
+      :value="data?.customerCount ?? 0"
+      :loading="loading"
+      icon="groups"
+    />
+    <KpiCard
+      label="Quotations"
+      :value="data?.quotationCount ?? 0"
+      :loading="loading"
+      icon="request-quote"
+    />
+    <KpiCard
+      label="Invoices"
+      :value="data?.invoiceCount ?? 0"
+      :loading="loading"
+      icon="receipt-long"
+      caption="Excluding voided"
+    />
+  </div>
+
+  <!-- Pending dispatches callout -->
+  <div
+    v-if="data && data.dispatchesPendingIssue > 0"
+    class="mb-space-xl flex items-center gap-space-sm rounded-xl bg-surface-container-lowest p-space-md elevation-1"
+  >
+    <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-surface-container text-primary">
+      <Icon name="material-symbols:pending-actions" class="size-5" />
+    </span>
+    <div class="flex-1">
+      <p class="font-headline-sm text-headline-sm text-on-surface">
+        {{ data.dispatchesPendingIssue }}
+        dispatch{{ data.dispatchesPendingIssue === 1 ? '' : 'es' }} awaiting issue
+      </p>
+      <p class="font-body-sm text-body-sm text-on-surface-variant">
+        Stock is only deducted once a dispatch is issued.
+      </p>
+    </div>
+    <AppButton variant="secondary" icon="local-shipping" to="/dispatches">Review</AppButton>
+  </div>
+
+  <!-- Reorder list -->
+  <div class="mb-space-md flex items-center justify-between gap-space-md">
+    <div>
+      <h2 class="font-headline-md text-headline-md text-on-surface">Reorder list</h2>
+      <p class="font-body-sm text-body-sm text-on-surface-variant">
+        Items at or below their reorder point, worst first.
+      </p>
+    </div>
+    <AppButton variant="secondary" size="sm" icon="arrow-forward" icon-trailing to="/products?status=LowStock">
+      All products
+    </AppButton>
+  </div>
+
+  <DataTable
+    :columns="columns"
+    :rows="data?.reorderList ?? []"
+    :loading="loading"
+    empty-title="Nothing needs reordering"
+    empty-description="Every tracked item is above its reorder point."
+    empty-icon="check-circle"
+  >
+    <template #cell-name="{ row }">
+      <div class="min-w-0">
+        <p class="truncate font-label-lg text-label-lg text-on-surface">{{ row.name }}</p>
+        <p class="truncate font-label-sm text-label-sm text-on-surface-variant">{{ row.partNumber }}</p>
+      </div>
+    </template>
+
+    <template #cell-categoryName="{ value }">
+      <StatusBadge v-if="value" :status="value" plain tone="neutral" />
+      <span v-else class="text-on-surface-variant">&mdash;</span>
+    </template>
+
+    <template #cell-stockQuantity="{ row }">
+      <StockProgressBar :value="row.stockQuantity" :threshold="row.lowStockThreshold" />
+    </template>
+
+    <template #cell-stockState="{ value }">
+      <StatusBadge :status="STATUS_LABEL[value as StockState]" />
+    </template>
+
+    <template #actions="{ row }">
+      <AppButton
+        variant="ghost"
+        size="icon"
+        icon="edit"
+        title="Open in products"
+        :to="`/products?q=${encodeURIComponent(row.partNumber)}`"
+      />
+    </template>
+  </DataTable>
 </template>
